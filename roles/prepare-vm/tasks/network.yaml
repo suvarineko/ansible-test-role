@@ -1,0 +1,44 @@
+---
+- name: Get active network interface
+  shell: "ip -o link show | awk -F': ' '{print $2}' | grep -v 'lo' | head -n 1"
+  register: current_interface
+  changed_when: false
+
+- name: Rename interface if not equal to new name
+  block:
+    - name: Check netplan config exists
+      stat:
+        path: "{{ netplan_config_path }}"
+      register: netplan_file_check
+
+    - name: Fail if no netplan config found
+      fail:
+        msg: "Netplan config {{ netplan_config_path }} don't exist!"
+      when: not netplan_file_check.stat.exists
+
+    - name: Create netplan config backup
+      copy:
+        src: "{{ netplan_config_path }}"
+        dest: "{{ netplan_config_path }}.bak"
+        remote_src: yes
+      when: netplan_file_check.stat.exists
+
+      # if there is >1 active interface, then need to change task to use more complicated yq syntax
+    - name: Rename network interface
+      lineinfile:
+        path: "{{ netplan_config_path }}"
+        regexp: '^\s+set-name:\s+\S+'
+        line: "      set-name: {{ network.rename_to }}"
+
+    - name: Apply netplan changes
+      command: netplan apply
+
+    - name: Get new network info
+      shell: "ip a show {{ network.rename_to }}"
+      register: network_info
+      changed_when: false
+
+    - name: New network interface info
+      debug:
+        msg: "{{ network_info.stdout_lines }}"
+  when: current_interface.stdout != network.rename_to

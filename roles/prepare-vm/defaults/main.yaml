@@ -1,0 +1,5 @@
+---
+netplan_config_path: /etc/netplan/50-cloud-init.yaml
+default_os_user: ubuntu
+encrypted_disk_name: crypt_disk
+encrypted_partition_name: crypt_partition

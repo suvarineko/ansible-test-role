@@ -1,0 +1,17 @@
+---
+- name: Encrypt additional disk and next to root partition
+  import_tasks: encryption.yaml
+  when: disk.encrypt != ""
+  tags: [encryption]
+
+- name: Setup cpu for performance
+  import_tasks: cpu_tuning.yaml
+  tags: [cpu_perf]
+
+- name: Rename active network
+  import_tasks: network.yaml
+  tags: [network]
+
+- name: Display info about CPU multi-threading
+  import_tasks: cpu_info.yaml
+  tags: [cpu_info]

@@ -1,0 +1,61 @@
+---
+- name: Check and disable C-state
+  block:
+    - name: Check if C-state (intel_idle.max_cstate) is already disabled
+      shell: "grep -q 'intel_idle.max_cstate=0' /etc/default/grub && echo 'disabled' || echo 'enabled'"
+      register: cstate_status_intel_idle
+      changed_when: false
+
+    - name: Check if C-state (processor.max_cstate) is already disabled
+      shell: "grep -q 'processor.max_cstate=0' /etc/default/grub && echo 'disabled' || echo 'enabled'"
+      register: cstate_status_processor
+      changed_when: false
+
+    - name: Disable C-state (intel_idle.max_cstate)
+      lineinfile:
+        path: "/etc/default/grub"
+        regexp: '^(GRUB_CMDLINE_LINUX_DEFAULT=".*)"'
+        line: '\1 intel_idle.max_cstate=0"'
+        backrefs: yes
+      when: cstate_status_intel_idle.stdout == "enabled"
+      notify: Update grub
+
+    - name: Disable C-state (processor.max_cstate)
+      lineinfile:
+        path: "/etc/default/grub"
+        regexp: '^(GRUB_CMDLINE_LINUX_DEFAULT=".*)"'
+        line: '\1 processor.max_cstate=0"'
+        backrefs: yes
+      when: cstate_status_processor.stdout == "enabled"
+      notify: Update grub
+
+- name: Check and switch cpu mode to performance
+  block:
+    - name: Check active cpufreq driver
+      shell: "cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo 'none'"
+      register: cpu_driver
+      changed_when: false
+
+    - name: Check if kernel modules for CPU frequency scaling are loaded
+      shell: "lsmod | grep -E 'acpi_cpufreq|intel_pstate|cpufreq' || echo 'none'"
+      register: cpu_kernel_module
+      changed_when: false
+
+    - name: Fail if no active cpufreq driver found
+      fail:
+        msg: "There is no active cpufreq driver{% if cpu_kernel_module.stdout == 'none' %} and kernel module not loaded{% endif %}!"
+      when: cpu_driver.stdout == "none"
+
+    - name: Check current CPU mode
+      shell: "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor | sort -u"
+      register: current_governor
+      changed_when: false
+
+    - name: Enable CPU performance mode
+      shell: |
+        for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          echo performance | tee $cpu
+        done
+      when: "'performance' not in current_governor.stdout"
+      register: cpu_governor
+      changed_when: cpu_governor.rc == 0

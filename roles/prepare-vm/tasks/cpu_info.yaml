@@ -1,0 +1,32 @@
+---
+- name: Get CPU model name
+  shell: "lscpu | grep 'Model name' | awk -F': ' '{print $2}' | sed 's/^ *//g' | tr -s ' '"
+  register: cpu_model
+  changed_when: false
+
+- name: Get cores per socket count
+  shell: "lscpu | grep '^Core(s) per socket' | awk '{print $NF}'"
+  register: cpu_cores
+  changed_when: false
+
+- name: Get sockets count
+  shell: "lscpu | grep '^Socket(s)' | awk '{print $NF}'"
+  register: cpu_sockets
+  changed_when: false
+
+- name: Get threads per core count
+  shell: "lscpu | grep '^Thread(s) per core' | awk '{print $NF}'"
+  register: threads_per_core
+  changed_when: false
+
+- name: Define multi-thread status
+  set_fact:
+    multithreading_status: "{{ 'Enabled' if threads_per_core.stdout | int > 1 else 'Disabled' }}"
+
+- name: Display CPU info
+  debug:
+    msg:
+      - "Model Name: {{ cpu_model.stdout_lines[0] }}"
+      - "CPU Sockets: {{ cpu_sockets.stdout }}"
+      - "Cores per socket: {{ cpu_cores.stdout }}"
+      - "Multi-Threading status: {{ multithreading_status }}"

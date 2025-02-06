@@ -1,0 +1,20 @@
+servers:
+  children:
+    group_01:
+      hosts:
+        test-vm01:
+          ansible_host: 3.73.230.192
+      vars:
+        network:
+          rename_to: "net0"
+        disk:
+          encrypt: /dev/xvdf
+          encrypt_type: luks2
+  # You may want to set individual params for each host or group like in example above
+  # Or common params for all hosts like in example beath
+  # vars:
+  #   network:
+  #     rename_to: "net0"
+  #   disk:
+  #     encrypt: /dev/xvdf
+  #     encrypt_type: luks2

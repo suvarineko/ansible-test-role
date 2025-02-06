@@ -1,0 +1,7 @@
+---
+- name: Prepare vm
+  hosts: group_01
+  become: true
+  gather_facts: true
+  roles:
+    - role: prepare-vm

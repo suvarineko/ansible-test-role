@@ -1,0 +1,89 @@
+---
+- name: Pre-check if disk already encrypted
+  shell: "lsblk -no TYPE {{ disk.encrypt }} | grep crypt || true"
+  register: is_encrypted
+  changed_when: false
+
+- name: Pre-check if disk contain partitions
+  shell: "lsblk -o NAME,TYPE {{ disk.encrypt }} | grep part || true"
+  register: disk_partitions
+  changed_when: false
+
+- name: Fail if disk contains partitions or already encrypted
+  fail:
+    msg: "{% if is_encrypted.stdout | length > 0 %}Disk {{ disk.encrypt }} already encrypted!{% elif disk_partitions.stdout | length > 0 %}Partition(s) present on disk {{ disk.encrypt }}. You need to remove them first.{% endif %}"
+  when: (is_encrypted.stdout | length > 0) or (disk_partitions.stdout | length > 0)
+
+- name: Encrypt disk
+  block:
+    - name: Install cryptsetup
+      apt:
+        name: cryptsetup
+        state: present
+
+    - name: Create file with decrypt password
+      copy:
+        dest: "/home/{{ default_os_user }}/decrypt_keyfile"
+        content: "{{ lookup('password', '/dev/null length=15 chars=ascii_letters') }}"
+
+    - name: Encrypt disk
+      command: "cryptsetup luksFormat --type luks2 {{ disk.encrypt }} -q --key-file /home/{{ default_os_user }}/decrypt_keyfile"
+      register: luks_format
+      changed_when: luks_format.rc == 0
+
+    - name: Open encrypted disk
+      command: "cryptsetup open {{ disk.encrypt }} --key-file /home/{{ default_os_user }}/decrypt_keyfile {{ encrypted_disk_name }}"
+      when: luks_format.rc == 0
+
+    - name: Create filesystem ext4
+      command: "mkfs.ext4 /dev/mapper/{{ encrypted_disk_name }}"
+      when: luks_format.rc == 0
+  when:
+    - is_encrypted.stdout | length == 0
+    - disk_partitions.stdout | length == 0
+
+- name: Find next to the root partition
+  shell: |
+    lsblk -rn $(jq -r ".blockdevices[]? | select(any(.children[]?; .name == \"$(findmnt -n -o SOURCE /)\")).name" <(lsblk --json -p -o NAME,UUID)) | awk '{print $1}' | awk 'found {print; exit} /xvda1/ {found=1}'
+  register: next_partition
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Check if partition already encrypted
+  shell: "lsblk -no TYPE /dev/{{ next_partition.stdout }} | grep crypt || true"
+  register: is_encrypted
+  changed_when: false
+
+- name: Fail if partition already encrypted
+  fail:
+    msg: "Partition {{ next_partition.stdout }} is already encrypted!"
+  when: is_encrypted.stdout | length > 0
+
+- name: Check partition size
+  parted:
+    device: "/dev/{{ next_partition.stdout }}"
+    unit: MiB
+  register: partition_size_info
+
+- name: Check encryption requirements
+  fail:
+    msg: "partition size does not meet minimum requirements for choosen encryptyon type {{ disk.encrypt_type }}! Check README.md for more info."
+  when:
+    - ((disk.encrypt_type == "luks2") and (partition_size_info.disk.size < 16)) or ((disk.encrypt_type == "luks1") and (partition_size_info.disk.size < 2))
+
+- name: Encrypt partition if not yet
+  block:
+    - name: Encrypt partition
+      command: "cryptsetup luksFormat --type luks2 /dev/{{ next_partition.stdout }} -q --key-file /home/{{ default_os_user }}/decrypt_keyfile"
+      register: luks_format
+      changed_when: luks_format.rc == 0
+
+    - name: Open encrypted partition
+      command: "cryptsetup open /dev/{{ next_partition.stdout }} --key-file /home/{{ default_os_user }}/decrypt_keyfile {{ encrypted_partition_name }}"
+      when: luks_format.rc == 0
+
+    - name: Create filesystem ext4
+      command: "mkfs.ext4 /dev/mapper/{{ encrypted_partition_name }}"
+      when: luks_format.rc == 0
+  when: is_encrypted.stdout | length == 0
