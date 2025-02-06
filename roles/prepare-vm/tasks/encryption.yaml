@@ -42,9 +42,10 @@
     - is_encrypted.stdout | length == 0
     - disk_partitions.stdout | length == 0
 
+# Dirty bash magic with unicorns
 - name: Find next to the root partition
   shell: |
-    lsblk -rn $(jq -r ".blockdevices[]? | select(any(.children[]?; .name == \"$(findmnt -n -o SOURCE /)\")).name" <(lsblk --json -p -o NAME,UUID)) | awk '{print $1}' | awk 'found {print; exit} /xvda1/ {found=1}'
+    export root_part=$(lsblk -rn $(findmnt -n -o SOURCE /) | awk '{print $1}'); lsblk -rn $(jq -r ".blockdevices[]? | select(any(.children[]?; .name == \"$(findmnt -n -o SOURCE /)\")).name" <(lsblk --json -p -o NAME,UUID)) | awk '{print $1}' | awk 'found {print; exit} $root_part {found=1}'
   register: next_partition
   args:
     executable: /bin/bash
