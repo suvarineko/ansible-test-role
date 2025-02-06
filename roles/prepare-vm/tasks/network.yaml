@@ -1,11 +1,16 @@
 ---
-- name: Get active network interface
-  shell: "ip -o link show | awk -F': ' '{print $2}' | grep -v 'lo' | head -n 1"
-  register: current_interface
-  changed_when: false
-
-- name: Rename interface if not equal to new name
+- name: Rename network interface
   block:
+    - name: Get active network interface
+      shell: "ip -o link show | awk -F': ' '{print $2}' | grep -v 'lo' | head -n 1"
+      register: current_interface
+      changed_when: false
+
+    - name: Fail if current interface name == new name
+      fail:
+        msg: "Active interface already has name {{ network.rename_to }}"
+      when: current_interface.stdout == network.rename_to
+
     - name: Check netplan config exists
       stat:
         path: "{{ netplan_config_path }}"
@@ -13,9 +18,18 @@
 
     - name: Fail if no netplan config found
       fail:
-        msg: "Netplan config {{ netplan_config_path }} don't exist!"
+        msg: "Netplan config {{ netplan_config_path }} don't exists!"
       when: not netplan_file_check.stat.exists
+  rescue:
+    - name: Print error message
+      debug:
+        msg: "Rename network interface | {{ ansible_failed_result.msg }}"
+    - fail:
+        msg: "Can't continue, check errors above."
 
+
+- name: Try to apply new netplan config
+  block:
     - name: Create netplan config backup
       copy:
         src: "{{ netplan_config_path }}"
@@ -41,4 +55,17 @@
     - name: New network interface info
       debug:
         msg: "{{ network_info.stdout_lines }}"
+  rescue:
+    - name: Restore netplan config from backup
+      copy:
+        src: "{{ netplan_config_path }}.bak"
+        dest: "{{ netplan_config_path }}"
+        remote_src: yes
+
+    - name: Apply restored netplan config
+      command: netplan apply
+
+    - name: Print error message
+      debug:
+        msg: "Rename network interface | {{ ansible_failed_result.msg }}"
   when: current_interface.stdout != network.rename_to

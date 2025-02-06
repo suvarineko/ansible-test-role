@@ -28,6 +28,11 @@
         backrefs: yes
       when: cstate_status_processor.stdout == "enabled"
       notify: Update grub
+  rescue:
+    - name: Print error message
+      debug:
+        msg: "Disable C-state | {{ ansible_failed_result.msg }}"
+
 
 - name: Check and switch cpu mode to performance
   block:
@@ -43,19 +48,23 @@
 
     - name: Fail if no active cpufreq driver found
       fail:
-        msg: "There is no active cpufreq driver{% if cpu_kernel_module.stdout == 'none' %} and kernel module not loaded{% endif %}!"
-      when: cpu_driver.stdout == "none"
+        msg: "{% if cpu_driver.stdout == 'none' %}There is no active cpufreq driver! {% endif %}{% if cpu_kernel_module.stdout == 'none' %}Kernel module not loaded!{% endif %}"
+      when: (cpu_driver.stdout == "none") or (cpu_kernel_module.stdout == "none")
 
     - name: Check current CPU mode
-      shell: "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor | sort -u"
+      shell: "cat /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor | sort -u"
       register: current_governor
       changed_when: false
 
     - name: Enable CPU performance mode
       shell: |
-        for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-          echo performance | tee $cpu
+        for cpu in $(ls -d /sys/devices/system/cpu/cpu[0-9]*); do
+          echo performance | tee $cpu/cpufreq/scaling_governor
         done
       when: "'performance' not in current_governor.stdout"
       register: cpu_governor
       changed_when: cpu_governor.rc == 0
+  rescue:
+    - name: Print error message
+      debug:
+        msg: "Switch cpu mode to performance | {{ ansible_failed_result.msg }}"

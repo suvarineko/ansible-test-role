@@ -3,5 +3,6 @@
   hosts: group_01
   become: true
   gather_facts: true
+  force_handlers: true
   roles:
     - role: prepare-vm
